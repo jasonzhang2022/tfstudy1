@@ -123,12 +123,13 @@ def main(args):
         # batch size can change from train to predict.
         model = build_model(1)
         print (tf.train.latest_checkpoint(checkpoint_dir))
-        model.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
+        status = model.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
+
         # change the batch shape for prediction
         #model.build(tf.TensorShape([1, None]))
         #model.reset_states()
         test_generate(model, u"ROMEO: ")
-
+        status.assert_existing_objects_matched()
        # final_text = generate(m, u"ROMEO: ")
        # print(final_text)
 
