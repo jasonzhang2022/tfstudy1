@@ -71,14 +71,14 @@ step 3: create model
 '''
 tensorboard_callback = keras.callbacks.TensorBoard("./logs")
 checkpoint_callback = keras.callbacks.ModelCheckpoint(filepath=checkpoint_prefix, save_weights_only=True)
-def model(batch_size):
-    model = keras.Sequential(
+def build_model(batch_size):
+    internal_model = keras.Sequential(
        [keras.layers.LSTM(64, input_shape=(fragment_len, voc_len), return_sequences=True, stateful=True, batch_size=batch_size),
         keras.layers.Dense(32, activation="relu"),
         keras.layers.Dense(voc_len)]
     )
-    model.compile(loss="sparse_categorical_crossentropy", optimizer="adam" )
-    return model
+    internal_model.compile(loss="sparse_categorical_crossentropy", optimizer="adam" )
+    return internal_model
 
 
 # generate
@@ -117,18 +117,18 @@ def test_generate(model, start_text):
 def main(args):
     del args
     if FLAGS.train:
-        m = model(batch_size)
-        m.fit(dataset, epochs=100, callbacks=[tensorboard_callback, checkpoint_callback])
+        model = build_model(batch_size)
+        model.fit(dataset, epochs=100, callbacks=[tensorboard_callback, checkpoint_callback])
     else:
         # batch size can change from train to predict.
-        m = model(1)
+        model = build_model(1)
         print (tf.train.latest_checkpoint(checkpoint_dir))
-        m.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
+        model.load_weights(tf.train.latest_checkpoint(checkpoint_dir))
         # change the batch shape for prediction
-        m.build(tf.TensorShape([1, None]))
-        m.reset_states()
-        for i in range(5):
-            test_generate(m, u"ROMEO: ")
+        #model.build(tf.TensorShape([1, None]))
+        #model.reset_states()
+        test_generate(model, u"ROMEO: ")
+
        # final_text = generate(m, u"ROMEO: ")
        # print(final_text)
 
