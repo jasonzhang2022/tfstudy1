@@ -42,6 +42,7 @@ vocabulary = set()
 for c in text:
     vocabulary.add(c)
 
+vocabulary = sorted(vocabulary)
 char_to_index = {c[0]: c[1] for c in zip(vocabulary, range(len(vocabulary)))}
 index_to_char = {value: key for key, value in char_to_index.items()}
 
