@@ -163,6 +163,9 @@ class Encoder(keras.Model):
         x= self.emedding(batch_input)
         # x shape is (batch, timeseries, gru_units). One (gru_units) for each timestep.
         # state  is the final encoded state. it is (batch, gru_units)
+
+        #Each gru call can accept optionally initial_state. For each time step,
+        # the internal state from previous step is used automatically.
         x, state = self.gru(x, initial_state = gru_initial_state)
 
         return x, state
@@ -272,7 +275,9 @@ class Decoder(keras.Model):
         #shape: (batch, 1,  embedding_dim + encoders' GRU unit)
         x = tf.concat([embedded, context_vector], axis=-1)
 
-        x, state = self.gru(x, initial_state=prev_hidden_state)
+        # Here for each character, we want to use state from previous call.
+        # so pass initial state here.
+        x, state = self.gru(x)
 
         # x has timestep. But the timestep here is 1.
         x = tf.squeeze(x, axis=1)

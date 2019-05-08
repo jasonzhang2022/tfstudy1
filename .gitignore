@@ -1,2 +1,6 @@
 .idea/
 test.py
+text/training_checkpoints
+text/features
+text/image_checkpoints
+
