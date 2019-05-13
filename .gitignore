@@ -3,4 +3,6 @@ test.py
 text/training_checkpoints
 text/features
 text/image_checkpoints
+text/transformer_checkpoints
+image/hub_checkpoints
 

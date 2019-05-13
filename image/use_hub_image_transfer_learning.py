@@ -2,97 +2,96 @@ from __future__ import division, print_function, absolute_import
 
 import tensorflow as tf
 import tensorflow_hub as hub
-import os.path as path
+import os
 
 import tensorflow.keras as keras
-import numpy as np
-import matplotlib.pyplot as plt
-import PIL.Image as Image
-import tensorflow.keras.backend as K
-import PIL
+
+print(tf.version)
+
 #constant
 FLOWERS_URL="https://storage.googleapis.com/download.tensorflow.org/example_images/flower_photos.tgz"
-HUB_MODEL_URL = "https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/2"
-FEATURE_EXTRACTOR_URL = "https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/feature_vector/2"
+HUB_MODEL_URL = "https://tfhub.dev/google/tf2-preview/mobilenet_v2/classification/2"
+FEATURE_EXTRACTOR_URL = "https://tfhub.dev/google/tf2-preview/mobilenet_v2/feature_vector/2"
 IMAGE_LABELS = 'https://storage.googleapis.com/download.tensorflow.org/data/ImageNetLabels.txt'
 TEST_IMAGE = 'https://storage.googleapis.com/download.tensorflow.org/example_images/grace_hopper.jpg'
 
 #download and save files
 flower_photos_diretory = keras.utils.get_file("flower_photos", FLOWERS_URL, untar=True)
-all_existing_label_file = keras.utils.get_file(path.basename(IMAGE_LABELS), IMAGE_LABELS)
-test_image_file = keras.utils.get_file(path.basename(TEST_IMAGE), TEST_IMAGE)
+all_existing_label_file = keras.utils.get_file(os.path.basename(IMAGE_LABELS), IMAGE_LABELS)
+test_image_file = keras.utils.get_file(os.path.basename(TEST_IMAGE), TEST_IMAGE)
 
-#prepare data
-IMAGE_SIZE = hub.get_expected_image_size(hub.Module(HUB_MODEL_URL))
-all_existing_labels = np.array(open(all_existing_label_file).read().splitlines())
-flower_data_generator = keras.preprocessing.image.ImageDataGenerator(rescale=1/255)
-flower_data = flower_data_generator.flow_from_directory(flower_photos_diretory, target_size=IMAGE_SIZE, batch_size=32)
-sorted_flowers=sorted(flower_data.class_indices.items(), key= lambda pair: pair[1])
-flowers = [name for name, index in sorted_flowers]
+IMAGE_SIZE = (224, 224)
 
-feature_extractor_layer= keras.layers.Lambda(lambda x: hub.Module(FEATURE_EXTRACTOR_URL)(x), input_shape=IMAGE_SIZE+[3])
-feature_extractor_layer.trainable = False
-model = keras.Sequential([
-   feature_extractor_layer,
-    keras.layers.Dense(len(flowers), activation="softmax")
-])
-print(model.summary())
-model.compile(loss="categorical_crossentropy", optimizer = tf.train.AdamOptimizer(), metrics=["accuracy"])
 
-#init hub module
-K.get_session().run(tf.global_variables_initializer())
+def prepare_labels():
+    lines = [line.strip()  for line in open(all_existing_label_file, "r").readlines() ]
 
-class CollectBatchStatus(keras.callbacks.Callback):
+    return lines
 
-    def __init__(self):
-        self.losses=[]
-        self.accuracy=[]
+imagenet_labels = prepare_labels()
 
-    def on_batch_end(self, batch, log):
-        self.losses.append(log['loss'])
-        self.accuracy.append(log['acc'])
 
 '''
-what does flower_data has
-1. it is an iterator each element is a batch. Each element in batch is (image, label)
-2. num_classes
-3. samples.
-4. class_indice
+1. Use MobileNet to classify test_imag
 '''
+test_image = tf.io.decode_jpeg(open(test_image_file, "rb").read(), channels=3)
+test_image = tf.image.resize(test_image, size=IMAGE_SIZE)
+test_image = test_image / 255
+batch_image = tf.expand_dims(test_image, 0)
+model = keras.Sequential([hub.KerasLayer(HUB_MODEL_URL, trainable=False, input_shape=IMAGE_SIZE + (3,))])
 
 
-steps = flower_data.samples // 32
-batch_stats = CollectBatchStatus()
-stats=model.fit( (image_batch for image_batch in flower_data), epochs = 1,
-           steps_per_epoch = steps,
-           validation_split=0.2, callbacks=[batch_stats])
-
-print(stats)
-
-
-
-def plotBatchStatus():
-    plt.figure(figsize=[2,4])
-    plt.subplot(2,1, 1)
-    batches = range(1, steps+1)
-    plt.plot(batches, batch_stats.losses)
-    plt.subplot(2,1, 2)
-    plt.plot(batches, batch_stats.accuracy)
-    plt.show()
-
-plotBatchStatus()
-
-iterator = iter(flower_data)
-(flower_batch, flower_label) = next(iterator)
-predictions = model.predict(flower_batch)
-predicted_index = np.argmax(predictions, axis=1)
-flower_index = np.argmax(flower_label, axis=1)
-print(flower_index)
+prediction = model.predict(batch_image)
+predicted_index = tf.math.argmax(prediction, axis=-1)[0]
 print(predicted_index)
+print("predicted class: ", imagenet_labels[predicted_index.numpy()])
+'''
+2. transfer learning
+'''
+checkpoint_dir = "hub_checkpoints"
+if not os.path.exists(checkpoint_dir):
+    os.mkdir(checkpoint_dir)
 
-equals = np.equal(flower_index, predicted_index)
-print(equals)
-print(np.sum(equals))
+BATCH_SIZE = 32
+images = keras.preprocessing.image.ImageDataGenerator(rescale=1/255)
+images_data = images.flow_from_directory(flower_photos_diretory, batch_size=BATCH_SIZE, target_size=IMAGE_SIZE)
+
+#properties not in document.
+num_classes  = images_data.num_classes
+num_examples = images_data.samples
+class_indices = images_data.class_indices
+
+index_classes = { key: c for (c, key) in class_indices.items() }
+
+new_model = keras.Sequential(
+    [hub.KerasLayer(FEATURE_EXTRACTOR_URL, trainable=False, input_shape=IMAGE_SIZE + (3,)),
+     keras.layers.Dense(num_classes, activation="softmax")
+     ]
+)
+
+step = num_examples//BATCH_SIZE
+
+new_model.compile(loss="categorical_crossentropy", optimizer="adam",metrics=['acc'])
+if not tf.train.latest_checkpoint(checkpoint_dir):
+    chkpt_callback = keras.callbacks.ModelCheckpoint(checkpoint_dir+"/cp-{epoch:04d}.ckpt", save_weights_only=True, verbose=1)
+    new_model.fit(images_data, epochs=2, steps_per_epoch=step, callbacks=[chkpt_callback])
+else:
+    lastest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    new_model.load_weights(lastest_checkpoint)
+
+for image_batch, labels in images_data:
+    predictions = new_model.predict(image_batch)
+    predicted_indices = tf.argmax(predictions, axis=-1)
+    labels = tf.argmax(labels, axis=-1)
+    for i in range(tf.size(predicted_indices)):
+        predicted = predicted_indices[i].numpy()
+        real = labels[i].numpy()
+        print ("real {}: predicted {} ".format(index_classes[real], index_classes[predicted]))
+
+    no_equals_sum = tf.reduce_sum(tf.cast(tf.math.not_equal(predicted_indices, labels), tf.int32))
+    print( "{:d} of out 32 are not equal.".format(no_equals_sum.numpy()) )
+
+    break
 
 
 
