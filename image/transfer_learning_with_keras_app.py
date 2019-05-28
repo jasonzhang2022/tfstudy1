@@ -46,6 +46,7 @@ feature_extractor.trainable = False
 model = keras.Sequential([
     feature_extractor,
     keras.layers.GlobalAveragePooling2D(),
+    #You don't need an activation function here because this prediction will be treated as a logit, or a raw prediciton value. Positive numbers predict class 1, negative numbers predict class 0.
     keras.layers.Dense(1, activation="sigmoid")
 ])
 model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
